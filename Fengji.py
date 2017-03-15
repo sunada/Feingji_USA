@@ -16,6 +16,7 @@ def get_files(path, fredix):
             files.append(file)
     return files
 
+#计算折价且写入新文件
 def cal_discount(file, dir):
     if not os.path.exists(file):
         return False
@@ -47,7 +48,8 @@ def cal_discount(file, dir):
                 new_file.write(content)
         return cnt
 
-def cal_divident_cnt(file,date_patern):
+#计算分红频率
+def cal_dividend_cnt(file,date_patern):
     if not os.path.exists(file):
         return False
 
@@ -77,6 +79,24 @@ def cal_divident_cnt(file,date_patern):
         write_map_to_file(file, pd_map,"./data/dividend/" + ticker + "_new_365.csv")
         f.close()
         os.remove(file + ".tmp")
+
+def check_dividend_3years(file, new_file):
+    dateparse = pd.tseries.tools.to_datetime
+    df = pd.read_csv(file,index_col = 'Payable Date', parse_dates=True, date_parser=dateparse)
+    df = df.sort_index()
+    with open(file, 'r') as f, open(new_file, 'w') as wf:
+        lines = f.readlines()
+        start_date = datetime.strptime(line[1].strip().split(",")[2], "%Y-%m-%d")
+        for line in lines:
+            seps = line.strip().split(",")
+            pay_date = datetime.strptime(seps[2], "%Y-%m-%d")
+            three_year_before = pay_date + timedelta(days = -365 * 3)
+            amount = float(seps[4])
+            if three_year_before < start_date:
+                tmp = line + ",-1" + "\n"
+                wf.write(tmp)
+            else:
+
 
 #this_date是否处在target_date过往1年中
 def within_one_year(this_date, target_date):
@@ -114,6 +134,7 @@ def write_map_to_file(file, map, new_file):
     rf.close()
     return
 
+# 检查年分红频率
 def check_divident_cnt(filename):
     map = {}
     with open(filename) as f:
@@ -148,45 +169,29 @@ def spit_devidends(filename):
                 dividend_ticker.write(line)
                 ticker = line.split(",")[0]
 
-def cal_z(file):
-    df = pd.read_csv(file)
-    with open(file, 'r') as f:
+#计算Z值且写入新文件
+def cal_z(file, new_file):
+    dateparse = pd.tseries.tools.to_datetime
+    df = pd.read_csv(file,index_col="Date",parse_dates=True,date_parser=dateparse)
+    with open(file, 'r') as f, open(new_file, 'w') as wf:
+        wf.write("Ticker,Date,Price,NAT,Discount,ava,std,z\n")
         lines = f.readlines()
-        for line in lines[1:7]:
-            seps = line.strip().split(",")
+        seps = lines[1].strip().split(",")
+        start_date = datetime.strptime(seps[1], "%Y-%m-%d")
+        for line in lines[1:365]:
+            line = line.strip()
+            seps = line.split(",")
             today = datetime.strptime(seps[1], "%Y-%m-%d")
             one_year_before = today + timedelta(days = -365)
-            one_year_before_str = one_year_before.strftime("%Y-%m-%d")
-            print one_year_before_str
-            tmp = 'Date <= ' + seps[1]
-            print tmp
-            print df.query(tmp)
-            print df.query('Date >= ' + one_year_before_str).query('Date <= ' + seps[1])
-            ava = df.query('Date >= ' + one_year_before_str)['Discount'].mean()
-            std = df.query('Date >= ' + one_year_before_str)['Discount'].std()
-            # print ava, std
+            if one_year_before < start_date:
+                continue
+            ava = df.loc[one_year_before : today]['Discount'].mean()
+            std = df.loc[one_year_before : today]['Discount'].std()
+            discount = float(seps[4])
+            z = (discount - ava) / std
+            line += "," + str(round(ava,4)) + "," + str(round(std,4)) + "," + str(round(z, 4)) + "\n"
+            wf.write(line)
 
-
-def fill_dividend_data(file):
-    with open(file, 'a+') as f:
-        lines = f.readlines()
-        print len(lines)
-        print lines[-1]
-        seps_start = lines[0].split(",")
-        start = datetime.strptime(seps_start[1], "%Y-%m-%d")
-        cnt = seps_start[-1]
-        for line in lines[1:]:
-            print line
-            seps = line.split(",")
-            end = datetime.strptime(seps[1], "%Y-%m-%d")
-            i = start + timedelta(days = 1)
-            while i < end:
-                tmp = seps[0] + "," + i.strftime("%Y-%m-%d") + "," + cnt
-                f.write(tmp)
-                i += timedelta(days = 1)
-            start = end
-            cnt = seps[-1]
-        f.close()
 
 if __name__ == "__main__":
     # files = get_files(".", "result")
@@ -197,7 +202,7 @@ if __name__ == "__main__":
 
     # for file in os.listdir("./data/dividend"):
     #     if not "_" in file:
-    #         cal_divident_cnt("./data/dividend/" + file, "%Y-%m-%d")
+    #         cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
     # cal_divident_cnt("./data/dividend/AFB.csv", "%Y-%m-%d")
 
     # for file in os.listdir("./data/dividend"):
@@ -209,5 +214,6 @@ if __name__ == "__main__":
     # check_divident_cnt("./data/dividend/"  + filename.split(".")[0] + "_new.csv")
 
     # fill_dividend_data("./data/dividend/ABE_new_365.csv")
-    cal_z("./data/discount/AFB.csv")
+    # cal_z("./data/discount/AFB.csv", "./data/discount/AFB_z.csv")
+    check_dividend_3years("./data/dividend/ABE_new_365.csv", "./data/dividend/ABE_new_365_3years.csv")
 
