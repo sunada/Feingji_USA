@@ -156,17 +156,17 @@ def check_dividend_3years(file, new_file):
             three_years_before = pay_date + timedelta(days = -365 * 3)
             tmp = pay_date
             res = True
-            j = i - 1
-            print item
-            while tmp >= three_years_before and j >= 0:
-                print "tmp:", tmp, "three_years_before:", three_years_before
-                print amount, float(data[j][4]), amount * 1.2
-                if amount < float(data[j][4]) and amount * 1.2 > float(data[j][4]) :
+            j = i
+            while tmp >= three_years_before and j > 0:
+                # print "tmp:", tmp, "three_years_before:", three_years_before
+                # print "当期分红：",amount, "上期分红", float(data[j][4]), "特殊分红标准线",amount * 1.2
+                if amount < float(data[j - 1][4]) and amount * 1.2 > float(data[j - 1][4]) :
                     res = False
                     print "res:", res
                     break
                 j -= 1
                 tmp =  datetime.strptime(data[j][2], "%Y-%m-%d")
+                amount = float(data[j][4])
             data[i].append(str(res))
 
         for item in data:
@@ -175,7 +175,7 @@ def check_dividend_3years(file, new_file):
             wf.write(tmp)
         wf.close()
 
-#this_date是否处在target_date过往1年中。
+#this_date是否处在target_date过往1年中。分红按月算，未精确到天
 def within_one_year(this_date, target_date):
     li = []
     this_date = this_date.strftime("%Y-%m-%d")
@@ -203,7 +203,8 @@ def write_map_to_file(file, map, new_file):
     if len(map) == 0:
         return
     with open(new_file, 'w') as wf, open(file, 'r') as rf:
-        wf.write("Ticker,Declared Date,Payable Date,Ex Date,Distrib Amount,Income,Long Gain,Short Gain,ROC,dividend_cnt\n")
+        # 3年内分红不小于上次的处理函数暂无法处理此行数据
+        # wf.write("Ticker,Declared Date,Payable Date,Ex Date,Distrib Amount,Income,Long Gain,Short Gain,ROC,dividend_cnt\n")
         for line in rf:
             seps = line.strip().split(",")
             key = datetime.strptime(seps[2], "%Y-%m-%d")
@@ -218,19 +219,21 @@ def check_divident_cnt(filename):
     map = {}
     with open(filename) as f:
         lines = f.readlines()
+        max = 0
         for line in lines[1:]:
             sep = line.strip().split(",")
             cnt = int(sep[-1])
+            max = max if max >= cnt else cnt
             if not cnt in map:
                 map[cnt] = 0
             map[cnt] += 1
 
     for key in map:
-        if key < 12 and map[key] == 1:
+        if key < max and map[key] == 1:
             continue
-        if key == 12:
+        if key == max:
             continue
-        print filename, "一年内分红的次数：", key, " 有多少个这样的次数：", map[key]
+        print filename, "最大分红次数：",max, "一年内异常分红的次数：", key, " 有多少个这样的次数：", map[key]
 
 
 
@@ -260,5 +263,11 @@ if __name__ == "__main__":
 
     # fill_dividend_data("./data/dividend/ABE_new_365.csv")
     # cal_z("./data/discount/AFB.csv", "./data/discount/AFB_z.csv")
-    # check_dividend_3years("./data/dividend/ACP_new_365.csv", "./data/dividend/ACP_new_365_3years.csv")
+
+    ticker = "DRA"
+    check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
+
+    # chosed_funds = get_chosed_fund()
+    # for ticker in chosed_funds:
+    #     check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
 
