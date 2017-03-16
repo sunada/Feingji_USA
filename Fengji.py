@@ -81,21 +81,35 @@ def cal_dividend_cnt(file,date_patern):
         os.remove(file + ".tmp")
 
 def check_dividend_3years(file, new_file):
-    dateparse = pd.tseries.tools.to_datetime
-    df = pd.read_csv(file,index_col = 'Payable Date', parse_dates=True, date_parser=dateparse)
-    df = df.sort_index()
-    with open(file, 'r') as f, open(new_file, 'w') as wf:
-        lines = f.readlines()
-        start_date = datetime.strptime(line[1].strip().split(",")[2], "%Y-%m-%d")
-        for line in lines:
-            seps = line.strip().split(",")
-            pay_date = datetime.strptime(seps[2], "%Y-%m-%d")
-            three_year_before = pay_date + timedelta(days = -365 * 3)
-            amount = float(seps[4])
-            if three_year_before < start_date:
-                tmp = line + ",-1" + "\n"
-                wf.write(tmp)
-            else:
+    data = csv.reader(open(file, 'r'), delimiter=",")
+    data = sorted(data, key = lambda x:datetime.strptime(x[2], "%Y-%m-%d"))
+    with open(new_file, 'w') as wf:
+        for i in range(len(data)):
+            item = data[i]
+            amount = float(item[4])
+            pay_date = datetime.strptime(item[2], "%Y-%m-%d")
+            three_years_before = pay_date + timedelta(days = -365 * 3)
+            tmp = pay_date
+            res = True
+            j = i - 1
+            print item
+            while tmp >= three_years_before and j >= 0:
+                print "tmp:", tmp, "three_years_before:", three_years_before
+                print amount, float(data[j][4]), amount * 1.2
+                if amount < float(data[j][4]) and amount * 1.2 > float(data[j][4]) :
+                    res = False
+                    print "res:", res
+                    break
+                j -= 1
+                tmp =  datetime.strptime(data[j][2], "%Y-%m-%d")
+            data[i].append(str(res))
+
+        for item in data:
+            tmp = ','.join(item)
+            tmp += "\n"
+            wf.write(tmp)
+        wf.close()
+
 
 
 #this_date是否处在target_date过往1年中
@@ -215,5 +229,5 @@ if __name__ == "__main__":
 
     # fill_dividend_data("./data/dividend/ABE_new_365.csv")
     # cal_z("./data/discount/AFB.csv", "./data/discount/AFB_z.csv")
-    check_dividend_3years("./data/dividend/ABE_new_365.csv", "./data/dividend/ABE_new_365_3years.csv")
+    check_dividend_3years("./data/dividend/ACP_new_365.csv", "./data/dividend/ACP_new_365_3years.csv")
 
