@@ -9,12 +9,45 @@ from datetime import timedelta
 import csv
 import pandas as pd
 
-def get_files(path, fredix):
+# 仅处理文件中指定的封基
+def get_chosed_fund(file = "ticker_sponsor.csv"):
+    df = pd.read_csv(file)
+    return df['ticker'].tolist()
+
+#遍历路径下，得到以prefix为前缀的文件list
+def get_files(path, predix):
     files = []
     for file in os.listdir(path):
-        if file.startswith(fredix):
+        if file.startswith(predix):
             files.append(file)
     return files
+
+#将分红文件割裂到以ticker为名的文件中
+def spit_devidends(filename):
+    dir = "./data/dividend"
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    chosed_funds = get_chosed_fund()
+    with open(filename) as f:
+        lines = f.readlines()
+        ticker = lines[1].strip().split(",")[0]
+        dividend_ticker = False
+        if ticker in chosed_funds:
+            dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
+        for line in lines[1:]:
+            seps = line.strip().split(",")
+            if not seps[0] in chosed_funds:
+                continue
+            if ticker == seps[0]:
+                if not dividend_ticker:
+                    dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
+                dividend_ticker.write(line)
+            else:
+                if dividend_ticker:
+                    dividend_ticker.close()
+                dividend_ticker = open(dir + "/" + seps[0] + ".csv", 'w')
+                dividend_ticker.write(line)
+                ticker = line.split(",")[0]
 
 #计算折价且写入新文件
 def cal_discount(file, dir):
@@ -84,6 +117,30 @@ def cal_dividend_cnt(file,date_patern):
         f.close()
         os.remove(file + ".tmp")
 
+#计算Z值且写入新文件
+def cal_z(file, new_file):
+    dateparse = pd.tseries.tools.to_datetime
+    df = pd.read_csv(file,index_col="Date",parse_dates=True,date_parser=dateparse)
+    with open(file, 'r') as f, open(new_file, 'w') as wf:
+        wf.write("Ticker,Date,Price,NAT,Discount,ava,std,z\n")
+        lines = f.readlines()
+        seps = lines[1].strip().split(",")
+        start_date = datetime.strptime(seps[1], "%Y-%m-%d")
+        for line in lines[1:365]:
+            line = line.strip()
+            seps = line.split(",")
+            today = datetime.strptime(seps[1], "%Y-%m-%d")
+            one_year_before = today + timedelta(days = -365)
+            if one_year_before < start_date:
+                continue
+            ava = df.loc[one_year_before : today]['Discount'].mean()
+            std = df.loc[one_year_before : today]['Discount'].std()
+            discount = float(seps[4])
+            z = (discount - ava) / std
+            line += "," + str(round(ava,4)) + "," + str(round(std,4)) + "," + str(round(z, 4)) + "\n"
+            wf.write(line)
+
+#检查三年中，封基是否每次的分红都不小于上一次（特殊分红除外）
 def check_dividend_3years(file, new_file):
     data = csv.reader(open(file, 'r'), delimiter=",")
     data = sorted(data, key = lambda x:datetime.strptime(x[2], "%Y-%m-%d"))
@@ -114,9 +171,7 @@ def check_dividend_3years(file, new_file):
             wf.write(tmp)
         wf.close()
 
-
-
-#this_date是否处在target_date过往1年中
+#已废弃 this_date是否处在target_date过往1年中
 def within_one_year(this_date, target_date):
     li = []
     this_date = this_date.strftime("%Y-%m-%d")
@@ -135,9 +190,11 @@ def within_one_year(this_date, target_date):
     tmp = seps[0] + "-" + seps[1]
     return tmp in li
 
+# target_date - 365天 < this_date <= target_date
 def within_365_days(this_date, target_date):
     return this_date <= target_date and this_date > target_date + timedelta(days=-365)
 
+#将map中的数据加入到file对应的行后。map记录着某天某个ticker的一年内分红的次数
 def write_map_to_file(file, map, new_file):
     if len(map) == 0:
         return
@@ -152,7 +209,7 @@ def write_map_to_file(file, map, new_file):
     rf.close()
     return
 
-# 检查年分红频率
+# 检查年基金每年分红的次数
 def check_divident_cnt(filename):
     map = {}
     with open(filename) as f:
@@ -171,60 +228,7 @@ def check_divident_cnt(filename):
             continue
         print filename, key, map[key]
 
-def spit_devidends(filename):
-    dir = "./data/dividend"
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    chosed_funds = get_chosed_fund()
-    with open(filename) as f:
-        lines = f.readlines()
-        ticker = lines[1].strip().split(",")[0]
-        dividend_ticker = False
-        if ticker in chosed_funds:
-            dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
-        for line in lines[1:]:
-            seps = line.strip().split(",")
-            if not seps[0] in chosed_funds:
-                continue
-            if ticker == seps[0]:
-                if not dividend_ticker:
-                    dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
-                dividend_ticker.write(line)
-            else:
-                if dividend_ticker:
-                    dividend_ticker.close()
-                dividend_ticker = open(dir + "/" + seps[0] + ".csv", 'w')
-                dividend_ticker.write(line)
-                ticker = line.split(",")[0]
 
-
-#计算Z值且写入新文件
-def cal_z(file, new_file):
-    dateparse = pd.tseries.tools.to_datetime
-    df = pd.read_csv(file,index_col="Date",parse_dates=True,date_parser=dateparse)
-    with open(file, 'r') as f, open(new_file, 'w') as wf:
-        wf.write("Ticker,Date,Price,NAT,Discount,ava,std,z\n")
-        lines = f.readlines()
-        seps = lines[1].strip().split(",")
-        start_date = datetime.strptime(seps[1], "%Y-%m-%d")
-        for line in lines[1:365]:
-            line = line.strip()
-            seps = line.split(",")
-            today = datetime.strptime(seps[1], "%Y-%m-%d")
-            one_year_before = today + timedelta(days = -365)
-            if one_year_before < start_date:
-                continue
-            ava = df.loc[one_year_before : today]['Discount'].mean()
-            std = df.loc[one_year_before : today]['Discount'].std()
-            discount = float(seps[4])
-            z = (discount - ava) / std
-            line += "," + str(round(ava,4)) + "," + str(round(std,4)) + "," + str(round(z, 4)) + "\n"
-            wf.write(line)
-
-# 仅处理文件中指定的封基
-def get_chosed_fund(file = "ticker_sponsor.csv"):
-    df = pd.read_csv(file)
-    return df['ticker'].tolist()
 
 if __name__ == "__main__":
     # files = get_files(".", "result")
