@@ -107,7 +107,7 @@ def cal_dividend_cnt(file,date_patern):
             seps = line.split(",")
             ticker = seps[0]
             pay_date = datetime.strptime(seps[2], date_patern)
-            pd_map[pay_date] = pd_map[pd] if pay_date in pd_map else 0
+            pd_map[pay_date] = pd_map[pay_date] if pay_date in pd_map else 0
             for key in pd_map:
                 if within_365_days(pay_date, key):
                 # if within_one_year(pd, key):
@@ -231,20 +231,18 @@ def check_divident_cnt(filename):
 
 
 if __name__ == "__main__":
+    #计算交易历史的折价率
     # files = get_files(".", "result")
     # for f in files:
     #     print cal_discount(f, "./data/discount")
 
-    # ticker = "CEV"
-    # print is_chosed_fund(ticker)
-    # tmp = get_chosed_fund()
-    # print tmp
+    # 切割分红数据
+    # spit_devidends("dividends.csv")
 
-    spit_devidends("dividends.csv")
-
-    # for file in os.listdir("./data/dividend"):
-    #     if not "_" in file:
-    #         cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
+    #计算一年内分红的次数
+    for file in os.listdir("./data/dividend"):
+        if not "_" in file:
+            cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
     # cal_divident_cnt("./data/dividend/AFB.csv", "%Y-%m-%d")
 
     # for file in os.listdir("./data/dividend"):
