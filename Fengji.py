@@ -27,8 +27,12 @@ def cal_discount(file, dir):
         last_day = [0]
         new_file = False
         cnt = 0
+        chosed_funds = get_chosed_fund()
         for line in lines[1:]:
             this_day = line.strip().split(",")
+            ticker = this_day[0]
+            if not ticker in chosed_funds:
+                continue
             if this_day[0] == last_day[0]:
                 tmp = 1 - float(this_day[2]) / float(last_day[3])
                 this_day[4] = str(round(tmp, 4))
@@ -48,7 +52,7 @@ def cal_discount(file, dir):
                 new_file.write(content)
         return cnt
 
-#计算分红频率
+#计算分红频率,并将结果写入新文件
 def cal_dividend_cnt(file,date_patern):
     if not os.path.exists(file):
         return False
@@ -69,10 +73,10 @@ def cal_dividend_cnt(file,date_patern):
         for line in lines:
             seps = line.split(",")
             ticker = seps[0]
-            pd = datetime.strptime(seps[2], date_patern)
-            pd_map[pd] = pd_map[pd] if pd in pd_map else 0
+            pay_date = datetime.strptime(seps[2], date_patern)
+            pd_map[pay_date] = pd_map[pd] if pay_date in pd_map else 0
             for key in pd_map:
-                if within_365_days(pd, key):
+                if within_365_days(pay_date, key):
                 # if within_one_year(pd, key):
                     val1 = pd_map[key] + 1
                     pd_map[key] = val1
@@ -168,20 +172,31 @@ def check_divident_cnt(filename):
         print filename, key, map[key]
 
 def spit_devidends(filename):
-    dirs = "./data/dividend"
+    dir = "./data/dividend"
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    chosed_funds = get_chosed_fund()
     with open(filename) as f:
         lines = f.readlines()
         ticker = lines[1].strip().split(",")[0]
-        dividend_ticker = open(dirs + "/" + ticker + ".csv", 'w')
+        dividend_ticker = False
+        if ticker in chosed_funds:
+            dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
         for line in lines[1:]:
             seps = line.strip().split(",")
+            if not seps[0] in chosed_funds:
+                continue
             if ticker == seps[0]:
+                if not dividend_ticker:
+                    dividend_ticker = open(dir + "/" + ticker + ".csv", 'w')
                 dividend_ticker.write(line)
             else:
-                dividend_ticker.close()
-                dividend_ticker = open(dirs + "/" + seps[0] + ".csv", 'w')
+                if dividend_ticker:
+                    dividend_ticker.close()
+                dividend_ticker = open(dir + "/" + seps[0] + ".csv", 'w')
                 dividend_ticker.write(line)
                 ticker = line.split(",")[0]
+
 
 #计算Z值且写入新文件
 def cal_z(file, new_file):
@@ -206,13 +221,22 @@ def cal_z(file, new_file):
             line += "," + str(round(ava,4)) + "," + str(round(std,4)) + "," + str(round(z, 4)) + "\n"
             wf.write(line)
 
+# 仅处理文件中指定的封基
+def get_chosed_fund(file = "ticker_sponsor.csv"):
+    df = pd.read_csv(file)
+    return df['ticker'].tolist()
 
 if __name__ == "__main__":
     # files = get_files(".", "result")
     # for f in files:
     #     print cal_discount(f, "./data/discount")
 
-    # spit_devidends("dividends.csv")
+    # ticker = "CEV"
+    # print is_chosed_fund(ticker)
+    # tmp = get_chosed_fund()
+    # print tmp
+
+    spit_devidends("dividends.csv")
 
     # for file in os.listdir("./data/dividend"):
     #     if not "_" in file:
@@ -229,5 +253,5 @@ if __name__ == "__main__":
 
     # fill_dividend_data("./data/dividend/ABE_new_365.csv")
     # cal_z("./data/discount/AFB.csv", "./data/discount/AFB_z.csv")
-    check_dividend_3years("./data/dividend/ACP_new_365.csv", "./data/dividend/ACP_new_365_3years.csv")
+    # check_dividend_3years("./data/dividend/ACP_new_365.csv", "./data/dividend/ACP_new_365_3years.csv")
 
