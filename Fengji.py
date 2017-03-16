@@ -107,7 +107,11 @@ def cal_dividend_cnt(file,date_patern):
             seps = line.split(",")
             ticker = seps[0]
             pay_date = datetime.strptime(seps[2], date_patern)
-            pd_map[pay_date] = pd_map[pay_date] if pay_date in pd_map else 0
+            # pd_map[pay_date] = pd_map[pay_date] if pay_date in pd_map else 0
+            #同一天分红再次（即有一次为特殊分红），则特殊分红不计入近一年的分红次数
+            if pay_date in pd_map:
+                continue
+            pd_map[pay_date] = 0
             for key in pd_map:
                 if within_365_days(pay_date, key):
                 # if within_one_year(pd, key):
@@ -171,7 +175,7 @@ def check_dividend_3years(file, new_file):
             wf.write(tmp)
         wf.close()
 
-#已废弃 this_date是否处在target_date过往1年中
+#this_date是否处在target_date过往1年中。
 def within_one_year(this_date, target_date):
     li = []
     this_date = this_date.strftime("%Y-%m-%d")
@@ -192,7 +196,7 @@ def within_one_year(this_date, target_date):
 
 # target_date - 365天 < this_date <= target_date
 def within_365_days(this_date, target_date):
-    return this_date <= target_date and this_date > target_date + timedelta(days=-365)
+    return this_date <= target_date and this_date > target_date + timedelta(days=-364)
 
 #将map中的数据加入到file对应的行后。map记录着某天某个ticker的一年内分红的次数
 def write_map_to_file(file, map, new_file):
@@ -226,7 +230,7 @@ def check_divident_cnt(filename):
             continue
         if key == 12:
             continue
-        print filename, key, map[key]
+        print filename, "一年内分红的次数：", key, " 有多少个这样的次数：", map[key]
 
 
 
@@ -240,11 +244,12 @@ if __name__ == "__main__":
     # spit_devidends("dividends.csv")
 
     #计算一年内分红的次数
-    for file in os.listdir("./data/dividend"):
-        if not "_" in file:
-            cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
-    # cal_divident_cnt("./data/dividend/AFB.csv", "%Y-%m-%d")
+    # for file in os.listdir("./data/dividend"):
+    #     if not "_" in file:
+    #         cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
+    # cal_dividend_cnt("./data/dividend/EFF.csv", "%Y-%m-%d")
 
+    # 检查每年基金的分红次数，输出不正常的
     # for file in os.listdir("./data/dividend"):
     #     if "_" in file:
     #         check_divident_cnt("./data/dividend/" + file)
