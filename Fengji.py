@@ -8,6 +8,7 @@ from datetime import datetime
 from datetime import timedelta
 import csv
 import pandas as pd
+import MySQLdb
 
 # 仅处理文件中指定的封基
 def get_chosed_fund(file = "ticker_sponsor.csv"):
@@ -15,10 +16,17 @@ def get_chosed_fund(file = "ticker_sponsor.csv"):
     return df['ticker'].tolist()
 
 #遍历路径下，得到以prefix为前缀的文件list
-def get_files(path, predix):
+def get_files_prefix(path, prefix):
     files = []
     for file in os.listdir(path):
-        if file.startswith(predix):
+        if file.startswith(prefix):
+            files.append(file)
+    return files
+
+def get_files_postfix(path, postfix):
+    files = []
+    for file in os.listdir(path):
+        if file.endswith(postfix):
             files.append(file)
     return files
 
@@ -49,6 +57,49 @@ def spit_devidends(filename):
                 dividend_ticker.write(line)
                 ticker = line.split(",")[0]
 
+#将历史交易数据导入数据库
+def discount_database(path="./data/z/"):
+    db = MySQLdb.connect("localhost","root","lala","fengji_usa")
+    for file in os.listdir(path):
+    # file = "./data/discount/BXMX.csv"
+    # if True:
+        with open(path+file, 'r') as f:
+            lines = f.readlines()
+            for line in lines[1:]:
+                seps = line.split(",")
+                sql = """INSERT INTO fund_history(ticker,deal_date, price, NAT, discount,ava,fund_std,z) VALUES ("%s","%s",%s,%s,%s,%s,%s,%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7])
+                # print sql
+                try:
+                    print line
+                    cursor = db.cursor()
+                    cursor.execute(sql)
+                    db.commit()
+                except Exception, e:
+                    print e
+                    db.rollback()
+    db.close()
+
+#将分红历史数据导入数据库
+def dividend_database(files,path="./data/dividend/"):
+    db = MySQLdb.connect("localhost","root","lala","fengji_usa")
+    for file in files:
+        # file = "./data/discount/BXMX.csv"
+        # if True:
+        with open(path+file, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                seps = line.split(",")
+                sql = """INSERT INTO dividend(ticker,declare_date, payable_date, ex_date, amount,cnt,bigger_three_year) VALUES ("%s","%s","%s","%s",%s,%s,%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4],seps[9],seps[10])
+                # print sql
+                try:
+                    cursor = db.cursor()
+                    cursor.execute(sql)
+                    db.commit()
+                except Exception, e:
+                    print e
+                    db.rollback()
+    db.close()
+
 #计算折价且写入新文件
 def cal_discount(file, dir):
     if not os.path.exists(file):
@@ -77,7 +128,7 @@ def cal_discount(file, dir):
                     new_file.close()
                 cnt += 1
                 last_day = this_day
-                last_day[4] = "None"
+                last_day[4] = "0"
                 filename = last_day[0]+".csv"
                 new_file = open(os.path.join(dir, filename), 'w')
                 new_file.write("Ticker,Date,Price,NAT,Discount\n")
@@ -130,12 +181,13 @@ def cal_z(file, new_file):
         lines = f.readlines()
         seps = lines[1].strip().split(",")
         start_date = datetime.strptime(seps[1], "%Y-%m-%d")
-        for line in lines[1:365]:
+        for line in lines[1:]:
             line = line.strip()
             seps = line.split(",")
             today = datetime.strptime(seps[1], "%Y-%m-%d")
             one_year_before = today + timedelta(days = -365)
             if one_year_before < start_date:
+                print one_year_before, start_date
                 continue
             ava = df.loc[one_year_before : today]['Discount'].mean()
             std = df.loc[one_year_before : today]['Discount'].std()
@@ -174,6 +226,32 @@ def check_dividend_3years(file, new_file):
             tmp += "\n"
             wf.write(tmp)
         wf.close()
+
+#将分红数据扩充到每天后写到文件中
+def fill_dividend_data(files,path="./data/dividend/"):
+    for file in files[4:5]:
+        # print file
+        data = csv.reader(open(path+file, 'r'), delimiter=",")
+        data = sorted(data, key = lambda x:datetime.strptime(x[2], "%Y-%m-%d"))
+        tmp = data[0]
+        tmp_iter = datetime.strptime(tmp[2], "%Y-%m-%d")
+        new_file = path + file.split(".")[0] + "_fill.csv"
+        last_pay_date = None
+        with open(new_file, 'w') as f:
+            for d in data:
+                pay_date = datetime.strptime(d[2], "%Y-%m-%d")
+                if pay_date == last_pay_date:
+                    f.write(",".join(d) + "\n")
+                    continue
+                while tmp_iter < pay_date:
+                    print tmp_iter
+                    tmp[2] = tmp_iter.strftime("%Y-%m-%d")
+                    f.write(",".join(tmp) + "\n")
+                    tmp_iter += timedelta(days = 1)
+                f.write(",".join(d) + "\n")
+                last_pay_date = pay_date
+                tmp = d
+
 
 #this_date是否处在target_date过往1年中。分红按月算，未精确到天
 def within_one_year(this_date, target_date):
@@ -235,13 +313,44 @@ def check_divident_cnt(filename):
             continue
         print filename, "最大分红次数：",max, "一年内异常分红的次数：", key, " 有多少个这样的次数：", map[key]
 
+# 交易历史数据与筛选出的基金对比结果 [NIQ, NID, NHA]没有历史数据
+def check_two_source_tickers(path="./data/discount", file="ticker_sponsor.csv"):
+    funds = os.listdir("./data/discount")
+    df = pd.read_csv("ticker_sponsor.csv")
+    tickers = df['ticker'].tolist()
+    tickers_from_funds = []
+    for f in funds:
+        ticker = f.split(".")[0]
+        tickers_from_funds.append(ticker)
 
+    for t in tickers:
+        if t not in tickers_from_funds:
+            print t
 
 if __name__ == "__main__":
     #计算交易历史的折价率
     # files = get_files(".", "result")
     # for f in files:
     #     print cal_discount(f, "./data/discount")
+
+    #计算z值
+    # files = os.listdir("./data/discount")
+    # for file in files:
+    #     new_file = "./data/z/"+file.split(".")[0] + "_z.csv"
+    #     cal_z("./data/discount/"+file, new_file)
+    # cal_z("./data/discount/JHB.csv", "./data/z/JHB_z.csv")
+
+    #将含有discount和z值的文件装入数据
+    # discount_database()
+
+    #发现数据库里比目标tikcers相关7个，分别是：EHT,JHB,JHD,JPT,NIQ,NID,NHA。
+    #其中NIQ,NID,NHA这三项无历史交易数据;EHT,JHB,JHD,JPT交易数据不足一年。z值计算不出来，所以都没写入数据库。
+    # tickers = pd.read_csv("mysql_test.csv")["ticker"].tolist()
+    # tickers_from_sponsor = pd.read_csv("ticker_sponsor.csv")["ticker"].tolist()
+    # for t in tickers_from_sponsor:
+    #     if t not in tickers:
+    #         print t
+
 
     # 切割分红数据
     # spit_devidends("dividends.csv")
@@ -252,6 +361,10 @@ if __name__ == "__main__":
     #         cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
     # cal_dividend_cnt("./data/dividend/EFF.csv", "%Y-%m-%d")
 
+    files = get_files_postfix("./data/dividend/", "_3years.csv")
+    # dividend_database(files)
+    fill_dividend_data(files)
+
     # 检查每年基金的分红次数，输出不正常的
     # for file in os.listdir("./data/dividend"):
     #     if "_" in file:
@@ -261,13 +374,12 @@ if __name__ == "__main__":
     # cal_divident_cnt("./data/dividend/" + filename, "%Y-%m-%d")
     # check_divident_cnt("./data/dividend/"  + filename.split(".")[0] + "_new.csv")
 
-    # fill_dividend_data("./data/dividend/ABE_new_365.csv")
-    # cal_z("./data/discount/AFB.csv", "./data/discount/AFB_z.csv")
-
-    ticker = "DRA"
-    check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
+    # ticker = "DRA"
+    # check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
 
     # chosed_funds = get_chosed_fund()
     # for ticker in chosed_funds:
     #     check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
+
+
 
