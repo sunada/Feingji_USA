@@ -157,20 +157,59 @@ def cal_dividend_cnt(file,date_patern):
         for line in lines:
             seps = line.split(",")
             ticker = seps[0]
+            amount = float(seps[4])
             pay_date = datetime.strptime(seps[2], date_patern)
             # pd_map[pay_date] = pd_map[pay_date] if pay_date in pd_map else 0
             #同一天分红再次（即有一次为特殊分红），则特殊分红不计入近一年的分红次数
+            # if pay_date in pd_map:
+            #     continue
+            #相同的pay_date只计一次
+            # pd_map[pay_date] = 0
             if pay_date in pd_map:
+                (cnt, div_amount) = pd_map[pay_date]
+                pd_map[pay_date] = (cnt, div_amount + amount)
                 continue
-            pd_map[pay_date] = 0
+            else:
+                pd_map[pay_date] = (0, amount)
             for key in pd_map:
                 if within_365_days(pay_date, key):
                 # if within_one_year(pd, key):
-                    val1 = pd_map[key] + 1
-                    pd_map[key] = val1
-        write_map_to_file(file, pd_map,"./data/dividend/" + ticker + "_new_365.csv")
+                #     val1 = pd_map[key] + 1
+                #     pd_map[key] = val1
+                    (cnt, amount) = pd_map[key]
+                    pd_map[key] = (cnt + 1, amount)
+        # write_map_to_file(file, pd_map,"./data/dividend/" + ticker + "_new_365.csv")
+        write_map_to_file2(ticker, pd_map, "./data/dividend/" + ticker + "_new_365.csv")
         f.close()
         os.remove(file + ".tmp")
+
+#将map中的数据加入到file对应的行后。map记录着某天某个ticker的一年内分红的次数
+def write_map_to_file(file, map, new_file):
+    if len(map) == 0:
+        return
+        with open(new_file, 'w') as wf, open(file, 'r') as rf:
+            # 3年内分红不小于上次的处理函数暂无法处理此行数据
+            # wf.write("Ticker,Declared Date,Payable Date,Ex Date,Distrib Amount,Income,Long Gain,Short Gain,ROC,dividend_cnt\n")
+            for line in rf:
+                seps = line.strip().split(",")
+                pay_date = datetime.strptime(seps[2], "%Y-%m-%d")
+                tmp = ",".join(seps) + "," + str(map[pay_date]) + "\n"
+                wf.write(tmp)
+        return
+
+def write_map_to_file2(ticker,map, new_file):
+    with open(new_file, 'w') as wf:
+        for pay_date in map.keys():
+            amount = map[pay_date][1]
+            cnt = map[pay_date][0]
+            tmp = ticker + "," + pay_date.strftime("%Y-%m-%d") + "," + str(amount) + "," + str(cnt) + "\n"
+            wf.write(tmp)
+    return
+
+# target_date - 365天 < this_date <= target_date
+def within_365_days(this_date, target_date):
+    return this_date <= target_date and this_date > target_date + timedelta(days=-364)
+
 
 #计算Z值且写入新文件
 def cal_z(file, new_file):
@@ -239,19 +278,19 @@ def fill_dividend_data(files,path="./data/dividend/"):
         last_pay_date = None
         with open(new_file, 'w') as f:
             for d in data:
+                print "d:", d
                 pay_date = datetime.strptime(d[2], "%Y-%m-%d")
+                print "pay_date:", pay_date, " last_pay_date:",last_pay_date," tmp_iter:",tmp_iter
                 if pay_date == last_pay_date:
                     f.write(",".join(d) + "\n")
+                    tmp_iter = pay_date + timedelta(days = 1)
                     continue
-                while tmp_iter < pay_date:
-                    print tmp_iter
+                while tmp_iter <= pay_date:
                     tmp[2] = tmp_iter.strftime("%Y-%m-%d")
                     f.write(",".join(tmp) + "\n")
                     tmp_iter += timedelta(days = 1)
-                f.write(",".join(d) + "\n")
                 last_pay_date = pay_date
                 tmp = d
-
 
 #this_date是否处在target_date过往1年中。分红按月算，未精确到天
 def within_one_year(this_date, target_date):
@@ -271,26 +310,6 @@ def within_one_year(this_date, target_date):
     seps = this_date.split("-")
     tmp = seps[0] + "-" + seps[1]
     return tmp in li
-
-# target_date - 365天 < this_date <= target_date
-def within_365_days(this_date, target_date):
-    return this_date <= target_date and this_date > target_date + timedelta(days=-364)
-
-#将map中的数据加入到file对应的行后。map记录着某天某个ticker的一年内分红的次数
-def write_map_to_file(file, map, new_file):
-    if len(map) == 0:
-        return
-    with open(new_file, 'w') as wf, open(file, 'r') as rf:
-        # 3年内分红不小于上次的处理函数暂无法处理此行数据
-        # wf.write("Ticker,Declared Date,Payable Date,Ex Date,Distrib Amount,Income,Long Gain,Short Gain,ROC,dividend_cnt\n")
-        for line in rf:
-            seps = line.strip().split(",")
-            key = datetime.strptime(seps[2], "%Y-%m-%d")
-            tmp = ",".join(seps) + "," + str(map[key]) + "\n"
-            wf.write(tmp)
-    wf.close()
-    rf.close()
-    return
 
 # 检查年基金每年分红的次数
 def check_divident_cnt(filename):
@@ -361,9 +380,9 @@ if __name__ == "__main__":
     #         cal_dividend_cnt("./data/dividend/" + file, "%Y-%m-%d")
     # cal_dividend_cnt("./data/dividend/EFF.csv", "%Y-%m-%d")
 
-    files = get_files_postfix("./data/dividend/", "_3years.csv")
+    # files = get_files_postfix("./data/dividend/", "_3years.csv")
     # dividend_database(files)
-    fill_dividend_data(files)
+    # fill_dividend_data(files)
 
     # 检查每年基金的分红次数，输出不正常的
     # for file in os.listdir("./data/dividend"):
@@ -374,8 +393,8 @@ if __name__ == "__main__":
     # cal_divident_cnt("./data/dividend/" + filename, "%Y-%m-%d")
     # check_divident_cnt("./data/dividend/"  + filename.split(".")[0] + "_new.csv")
 
-    # ticker = "DRA"
-    # check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
+    ticker = "EFF"
+    check_dividend_3years("./data/dividend/" + ticker + "_new_365.csv", "./data/dividend/" + ticker + "_new_365_3years.csv")
 
     # chosed_funds = get_chosed_fund()
     # for ticker in chosed_funds:
