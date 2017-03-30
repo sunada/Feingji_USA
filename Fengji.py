@@ -100,6 +100,28 @@ def dividend_database(files,path="./data/dividend/"):
                     db.rollback()
     db.close()
 
+#将处理后的交易&分红数据写入数据库
+def deal_dividend_database(files, path="./data/chosed_fund_data/"):
+    db = MySQLdb.connect("localhost", "root", "lala", "fengji_usa")
+    for file in files:
+        with open(path + file, 'r') as f:
+            f.readline()
+            for line in f:
+                seps = line.strip().split(",")
+                print seps
+                sql = """INSERT INTO fund_dividend(deal_date,ticker,price,nat,discount,ava,standard,z,amount,cnt,3years,3year_sum_amount,is_real_dividend_date,3years_profit) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7],seps[9],seps[10],seps[11],seps[12],seps[13],seps[14])
+                # sql = """INSERT INTO fund_dividend(deal_date, ticker, price,nat,discount,ava,standard,z,amount,cnt,3years) VALUES ("%s","%s",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""%(seps[0], seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7],seps[9],seps[10],seps[11],seps[12])
+                print sql
+                # try:
+                #     cursor = db.cursor()
+                #     cursor.execute(sql)
+                #     db.commit()
+                # except Exception, e:
+                #     print e
+                #     db.rollback()
+                return
+    db.close()
+
 #计算折价且写入新文件
 def cal_discount(file, dir):
     if not os.path.exists(file):
@@ -534,8 +556,12 @@ if __name__ == "__main__":
     #10. 检查final数据文件中，基金是数据是否齐全
     #检查结果显示：['EHT', 'JHB', 'JHD', 'NIQ', 'NID', 'NHA', 'JPT'] 未有最终数据文件。
     # 随机查看两个后发现基金是16年才开始有交易数据，不满1年。不符合轮动条件
-    res = check_final("./data/chosed_fund_data", get_chosed_fund())
-    print res
+    # res = check_final("./data/chosed_fund_data", get_chosed_fund())
+    # print res
+
+    # final_files = get_files_postfix("./data/chosed_fund_data/", "_final.csv")
+    # print final_files
+    deal_dividend_database(["BXMX_final.csv"])
 
 
 
