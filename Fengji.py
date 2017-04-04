@@ -100,6 +100,26 @@ def dividend_database(files,path="./data/dividend/"):
                     db.rollback()
     db.close()
 
+def dividend_original(file="dividends.csv"):
+    if not os.path.exists(file):
+        return False
+    db = MySQLdb.connect("localhost","root","lala","fengji_usa")
+    with open(file, 'r') as f:
+        f.readline()
+        for line in f:
+            seps = line.strip().split(",")
+            sql = """INSERT INTO dividend_original(ticker,declare_date, payable_date, ex_date, amount) VALUES ("%s","%s","%s","%s",%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4])
+            print sql
+            try:
+                cur = db.cursor()
+                cur.execute(sql)
+                db.commit()
+            except Exception, e:
+                print e
+                db.rollback()
+        db.close
+    return True
+
 #将处理后的交易&分红数据写入数据库
 def deal_dividend_database(files, path="./data/chosed_fund_data/"):
     db = MySQLdb.connect("localhost", "root", "lala", "fengji_usa")
@@ -109,17 +129,15 @@ def deal_dividend_database(files, path="./data/chosed_fund_data/"):
             for line in f:
                 seps = line.strip().split(",")
                 print seps
-                sql = """INSERT INTO fund_dividend(deal_date,ticker,price,nat,discount,ava,standard,z,amount,cnt,3years,3year_sum_amount,is_real_dividend_date,3years_profit) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7],seps[9],seps[10],seps[11],seps[12],seps[13],seps[14])
-                # sql = """INSERT INTO fund_dividend(deal_date, ticker, price,nat,discount,ava,standard,z,amount,cnt,3years) VALUES ("%s","%s",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""%(seps[0], seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7],seps[9],seps[10],seps[11],seps[12])
+                sql = """INSERT INTO fund_dividend(deal_date,ticker,price,nat,discount,ava,standard,z,amount,cnt,3years,3year_sum_amount,is_real_dividend_date,3years_profit) VALUES ("%s","%s",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""" %(seps[0],seps[1],seps[2],seps[3],seps[4],seps[5],seps[6],seps[7],seps[9],seps[10],seps[11],seps[12],seps[13],seps[14])
                 print sql
-                # try:
-                #     cursor = db.cursor()
-                #     cursor.execute(sql)
-                #     db.commit()
-                # except Exception, e:
-                #     print e
-                #     db.rollback()
-                return
+                try:
+                    cursor = db.cursor()
+                    cursor.execute(sql)
+                    db.commit()
+                except Exception, e:
+                    print e
+                    db.rollback()
     db.close()
 
 #计算折价且写入新文件
@@ -141,6 +159,44 @@ def cal_discount(file, dir):
                 continue
             if this_day[0] == last_day[0]:
                 tmp = 1 - float(this_day[2]) / float(last_day[3])
+                this_day[4] = str(round(tmp, 4))
+                last_day = this_day
+                content = ",".join(this_day) + "\n"
+                new_file.write(content)
+            else:
+                if new_file:
+                    new_file.close()
+                cnt += 1
+                last_day = this_day
+                last_day[4] = "0"
+                filename = last_day[0]+".csv"
+                new_file = open(os.path.join(dir, filename), 'w')
+                new_file.write("Ticker,Date,Price,NAT,Discount\n")
+                content = ",".join(last_day) + "\n"
+                new_file.write(content)
+        return cnt
+
+#计算折价且写入新文件
+def cal_new_discount(file, dir):
+    if not os.path.exists(file):
+        return False
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    with open(file, 'r') as f:
+        lines = f.readlines()
+        last_day = [0]
+        new_file = False
+        cnt = 0
+        chosed_funds = get_chosed_fund()
+        for line in lines[1:]:
+            this_day = line.strip().split(",")
+            ticker = this_day[0]
+            if ticker != "BXMX":
+                continue
+            if not ticker in chosed_funds:
+                continue
+            if this_day[0] == last_day[0]:
+                tmp = float(this_day[2]) / float(last_day[3]) - 1
                 this_day[4] = str(round(tmp, 4))
                 last_day = this_day
                 content = ",".join(this_day) + "\n"
@@ -462,20 +518,28 @@ def check_final(path, chosed_funds):
     return res
 
 if __name__ == "__main__":
+    dividend_original()
+
     #0. 封基轮动池
     # chosed_funds = get_chosed_fund()
 
     #1. 计算交易历史的折价率
     # files = get_files_prefix(".", "result")
     # for f in files:
-    #     print cal_discount(f, "./data/discount")
+        # print cal_discount(f, "./data/discount")
 
     #2. 计算z值
     # files = os.listdir("./data/discount")
     # for file in files:
     #     new_file = "./data/z/"+file.split(".")[0] + "_z.csv"
     #     cal_z("./data/discount/"+file, new_file)
-    # cal_z("./data/discount/JHB.csv", "./data/z/JHB_z.csv")
+
+    #cal_new_discount计算得到溢价率 = 价格/前一天的净值 -1
+    #使用溢价率计算z值，发现与使用折价率计算z值相比，仅正负相反，其他一样
+    # files = get_files_prefix(".", "result")
+    # for f in files:
+    #     print cal_new_discount(f, "./data/discountTest")
+    # cal_z("./data/discountTest/BXMX.csv", "./data/z/BXMX.csv")
 
     #3. 将含有discount和z值的文件装入数据
     # discount_database()
@@ -561,7 +625,8 @@ if __name__ == "__main__":
 
     # final_files = get_files_postfix("./data/chosed_fund_data/", "_final.csv")
     # print final_files
-    deal_dividend_database(["BXMX_final.csv"])
+    # deal_dividend_database(["CEV_final.csv"])
+    # deal_dividend_database(final_files)
 
 
 
