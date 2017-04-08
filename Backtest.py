@@ -29,8 +29,10 @@ class HoldFunds:
     def __init__(self, amount):
         self.amount = amount
         self.cash = amount
-        #{ticker:buy_date,PriceShare}
+        #{ticker:PriceShare}
         self.hold_funds = {}
+        #预期可以拿到的分红{日期：[(ticker，金额)]}
+        self.expected_dividend = {}
         logging.basicConfig(level=logging.DEBUG,
                             format='%(message)s',
                             datefmt='',
@@ -39,10 +41,10 @@ class HoldFunds:
 
     def refresh(self, date):
         new_amount = 0.0
-        db = MySQLdb.connect("127.0.0.1", "root", "lala", "fengji_usa")
         ticker_cnt = len(self.hold_funds)
-        if ticker_cnt > 0:
-            cash_per_ticker = self.cash / ticker_cnt
+        if ticker_cnt == 0:
+            return
+        db = MySQLdb.connect("127.0.0.1", "root", "lala", "fengji_usa")
         for ticker in self.hold_funds:
             sql = "SELECT price From fund_dividend WHERE ticker = '%s' and deal_date = '%s'" %(ticker,date)
             # print sql
@@ -51,37 +53,36 @@ class HoldFunds:
             data = cur.fetchall()
             # print "len(data):", len(data)
             if len(data) == 1:
-                self.hold_funds[ticker][1].price = float(data[0][0])
-                self.buy_fund(date, ticker, float(data[0][0]), cash_per_ticker)
-            new_amount += self.hold_funds[ticker][1].worth()
+                self.hold_funds[ticker].price = float(data[0][0])
+            new_amount += self.hold_funds[ticker].worth()
         db.close()
+        if
         self.amount = new_amount + self.cash
         return
 
     def refresh_amount(self):
         new_amount = 0.00
         for f in self.hold_funds:
-            new_amount += self.hold_funds[f][1].worth()
+            new_amount += self.hold_funds[f].worth()
         self.amount = new_amount + self.cash
 
     def get_dividend(self,date):
         db = MySQLdb.connect("localhost", "root", "lala", "fengji_usa")
         for ticker in self.hold_funds:
-            buy_date = self.hold_funds[ticker][0]
-            price_share = self.hold_funds[ticker][1]
+            price_share = self.hold_funds[ticker]
             cur = db.cursor()
-            sql = "SELECT ex_date,amount FROM dividend_original WHERE ticker = '%s' AND payable_date = '%s'" %(ticker,date)
+            sql = "SELECT payable_date,amount FROM dividend_original WHERE ticker = '%s' AND ex_date = '%s'" %(ticker,date)
             cur.execute(sql)
             data = cur.fetchall()
             for d in data:
-                ex_date = d[0]
+                payable_date = d[0]
                 dividend_amount = d[1]
                 # print "buy_date:", buy_date.date(), " ex_date:", ex_date
-                if buy_date.date() < ex_date:
-                    # print "before get the dividend:", self.amount
-                    self.amount += float(dividend_amount) * price_share.get_share()
-                    self.cash += float(dividend_amount) * price_share.get_share()
-                    # print "get the dividend ", buy_date.date(), ex_date, dividend_amount,self.amount
+                tmp = price_share * dividend_amount
+                if payable_date in self.expected_dividend:
+                    self.expected_dividend[payable_date] += tmp
+                else:
+                    self.expected_dividend[payable_date] = tmp
         db.close()
         return
 
@@ -94,25 +95,25 @@ class HoldFunds:
         for t in tickers:
             price = targets[t]
             share = int(self.cash / cnt / price)
-            self.hold_funds[t] = (date,PriceShare(price, share))
+            self.hold_funds[t] = PriceShare(price, share)
             self.cash -= price * share * (1 + expense_ratio)
             self.cash = round(self.cash, 4)
         self.refresh_amount()
         return
 
-    def buy_fund(self,date, ticker, price, cash, expense_ratio=0):
+    def buy_fund(self, ticker, price, cash, expense_ratio=0):
         share = int(cash / price)
         if share == 0:
             return
         self.cash -= price * share * (1 + expense_ratio)
         self.cash = round(self.cash, 4)
         if not ticker in self.hold_funds:
-            self.hold_funds[ticker] = (date,PriceShare(price, share))
+            self.hold_funds[ticker] = PriceShare(price, share)
         else:
-            hold_share = self.hold_funds[ticker][1].get_share()
+            hold_share = self.hold_funds[ticker].get_share()
             new_share = hold_share + share
-            self.hold_funds[ticker] = (date, PriceShare(price, new_share))
-        self.refresh_amount()
+            self.hold_funds[ticker] =  PriceShare(price, new_share)
+        # self.refresh_amount()
 
     def sell_funds(self, targets,expense_ratio = 0):
         tickers = self.need2sell(targets)
@@ -120,7 +121,7 @@ class HoldFunds:
             return
         print "need to sell_funds:",tickers
         for t in tickers:
-            tmp = self.hold_funds[t][1].worth()
+            tmp = self.hold_funds[t].worth()
             self.cash += tmp * (1 + expense_ratio)
             self.cash = round(self.cash, 4)
             self.hold_funds.pop(t)
@@ -139,8 +140,8 @@ class HoldFunds:
     def to_string(self):
         res = "amount:" + str(self.amount) + " cash:" + str(self.cash)
         for t in self.hold_funds:
-            res += " ticker:" + t + " " + " buy_date:" + datetime.strftime(self.hold_funds[t][0],"%Y-%m-%d")\
-                   + " content:" + self.hold_funds[t][1].to_string()
+            res += " ticker:" + t + " "\
+                   + " content:" + self.hold_funds[t].to_string()
         return res
 
     def to_csv_line(self, today):
@@ -149,8 +150,7 @@ class HoldFunds:
         tmp = ""
         for ticker in self.hold_funds:
             tmp += " " + ticker + ","
-            tmp += datetime.strftime(self.hold_funds[ticker][0], "%Y-%m-%d")
-            tmp += "," + self.hold_funds[ticker][1].to_string() + ","
+            tmp += self.hold_funds[ticker].to_string() + ","
         tmp.strip()
         contents.append(tmp)
         # print "contents:", ",".join(contents)
@@ -184,7 +184,6 @@ def lundong(start_date, end_date, cnt, start_money):
 
     db = MySQLdb.connect("127.0.0.1","root","lala","fengji_usa")
     while date <= end:
-        account.get_dividend(date)
         date_str = datetime.strftime(date, "%Y-%m-%d")
         # sql = "SELECT ticker, z*discount*cnt*amount/price AS score, price FROM fund_dividend WHERE " \
         #       "deal_date='%s' ORDER BY score DESC " \
@@ -217,6 +216,7 @@ def lundong(start_date, end_date, cnt, start_money):
             print e
         dates.append(date)
         amount.append(account.chagne_holds(date, funds))
+        account.get_dividend(date)
         date += timedelta(days = 1)
     db.close()
     plt.plot(dates, amount)
