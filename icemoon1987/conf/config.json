@@ -2,7 +2,13 @@
 	"log_dir": "./log",
 	"data_dir": "./data",
 	"result_dir": "./result",
-	"debug_mode": true
+	"debug_mode": true,
+
+	"select_sponsors": [
+		"Pacific Investment Management Company LLC",
+		"Nuveen Fund Advisors",
+		"Eaton Vance"
+	]
 }
 
 

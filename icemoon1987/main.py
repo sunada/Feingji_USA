@@ -76,21 +76,69 @@ def load_dividends(dividen_file):
     return pd.read_csv(dividen_file)
 
 
+def load_sponsor(sponsor_file):
+    """ 加载sponsor数据，返回DataFrame """
+
+    return pd.read_csv(sponsor_file)
+
+
+def filter_by_sponsor(trade_data, sponsor, config_json):
+    """ 按照sponsor过滤数据 """
+
+    tickers = sponsor.where(sponsor["sponsor"].isin(config_json["select_sponsors"])).dropna()["ticker"].values
+
+    result = trade_data.where(trade_data["Ticker"].isin(tickers)).dropna()
+
+    return result
+
+
+def filter_by_earning(trade_data, config_json):
+    """ 按照earning过滤数据 """
+
+    return
+
+
+
+def load_data(config_json):
+    """ 加载数据，合并数据 """
+
+    trade_data = load_trade_data(config_json["data_dir"])
+    dividend = load_dividends("./conf/dividends.csv")
+    sponsor = load_sponsor("./conf/ticker_sponsor.csv")
+
+    #print trade_data
+    #print dividend
+    #print sponsor
+
+    #print trade_data.where(trade_data["Ticker"] == "MMV").dropna()
+    #print trade_data.query("Ticker == \"MFM\"")
+    #print sponsor.query("ticker == \"MMV\"")
+
+    #result = pd.merge(trade_data, sponsor, how="left", left_on="Ticker", right_on="ticker")
+
+    #print result
+    
+    return
+
+
 def main():
 
     config_json = init("./conf/config.json")
 
+    #load_data(config_json)
+
     trade_data = load_trade_data(config_json["data_dir"])
-
-    print trade_data
-
     dividend = load_dividends("./conf/dividends.csv")
+    sponsor = load_sponsor("./conf/ticker_sponsor.csv")
 
-    print dividend
+    filtered_trade_data = filter_by_sponsor(trade_data, sponsor, config_json)
+
+    print filter_by_sponsor
 
     return
 
 
 if __name__ == "__main__":
     main()
+
 
