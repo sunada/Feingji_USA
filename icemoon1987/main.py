@@ -92,10 +92,14 @@ def filter_by_sponsor(trade_data, sponsor, config_json):
     return result
 
 
-def filter_by_earning(trade_data, config_json):
-    """ 按照earning过滤数据 """
+def generate_earnings(trade_data, config_json):
+    """ 计算earnings """
+
+    print trade_data
+    print config_json["earning_days_gap"]
 
     return
+
 
 
 
@@ -133,7 +137,7 @@ def main():
 
     filtered_trade_data = filter_by_sponsor(trade_data, sponsor, config_json)
 
-    print filter_by_sponsor
+    generate_earnings(trade_data, config_json)
 
     return
 
