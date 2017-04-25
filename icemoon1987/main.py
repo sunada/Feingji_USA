@@ -58,11 +58,35 @@ def init(conf_file):
     return config_json
     
 
+def load_trade_data(data_dir):
+    """ 加载一个目录下的所有详情数据，返回DataFrame """
+
+    result = pd.DataFrame()
+
+    for file_name in os.listdir(data_dir):
+        tmp = pd.read_csv(data_dir + "/" + file_name)
+        result = pd.concat([result, tmp], ignore_index=True)
+
+    return result
+
+
+def load_dividends(dividen_file):
+    """ 加载dividend数据，返回DataFrame """
+
+    return pd.read_csv(dividen_file)
+
+
 def main():
 
     config_json = init("./conf/config.json")
 
-    print config_json
+    trade_data = load_trade_data(config_json["data_dir"])
+
+    print trade_data
+
+    dividend = load_dividends("./conf/dividends.csv")
+
+    print dividend
 
     return
 
