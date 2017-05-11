@@ -15,7 +15,8 @@
 	"z_score_days": 365,
 
 	"backtest_start_date": "",
-	"backtest_end_date": ""
+	"backtest_end_date": "",
+	"start_cash": 1000000
 }
 
 

@@ -137,6 +137,10 @@ class Account(object):
 
         return value
 
+    
+    def get_stock_list(self):
+        return self.stock_map.keys()
+
 
     def __str__(self):
 

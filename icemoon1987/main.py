@@ -29,6 +29,7 @@ import logging
 import shutil
 import pandas as pd
 from datetime import datetime, timedelta
+from account import Account
 
 # 设置pandas数据显示宽度
 pd.set_option("display.width", 300)
@@ -392,6 +393,8 @@ def get_test_dates(trade_data, dividend, config_json):
     logging.info("days to calculate all features:  %d" % (max_days))
 
     # 检查回测开始、结束时间是否合理
+    # 由于计算指标需要一定天数的数据，所以只有部分数据的指标是完整的。回测起止时间必须使用完整指标的数据。
+    # 如果没有配置回测起始时间，自动通过数据中的日期和计算指标所用天数推算
     if config_json.get("backtest_start_date", "") == "":
         backtest_start_date = min_date + timedelta(days = max_days)
         logging.warn("backtest_start_date not found. Using default: %s" % (backtest_start_date))
@@ -411,12 +414,56 @@ def get_test_dates(trade_data, dividend, config_json):
     return backtest_start_date, backtest_end_date
 
 
-def backtest(trade_data, dividend, config_json):
 
+def backtest(trade_data, dividend, config_json):
+    """ 实现回测逻辑的函数 """
+
+    # 检查回测日期是否满足条件
     start_date, end_date = get_test_dates(trade_data, dividend, config_json)
 
     if start_date == None:
         return None
+
+    print trade_data, dividend
+
+    # 去除特殊分红
+    dividend = dividend.where(dividend["is_special"] == 0).dropna()
+
+    # 合并交易数据和分红数据，并填充
+    trade_data = pd.merge(trade_data, dividend, how="left", left_on=["Ticker", "Date"], right_on=["Ticker", "Ex Date"])
+
+    merged_data = pd.DataFrame()
+    grouped = trade_data.groupby(trade_data["Ticker"])
+
+    for ticker, data in grouped:
+        data.fillna(method="pad", inplace=True)
+        merged_data = pd.concat([merged_data, data])
+
+    # 回测开始
+    now_date = start_date
+    account = Account(cash=config_json["start_cash"], min_trade_share=0, trade_unit=1)
+
+    # Ticker: {Pay Date: hold share}
+    dividend_ticker_map = {}
+
+    while now_date < end_date:
+
+        # 判断当前持仓是否有能够获得红利的封基，将能够获得红利的封基记录在另外一张表中。在Payable Date到来时在获取红利
+        holding_tickers = account.get_stock_list()
+
+        ex_tickers = dividend.where(dividend["Ex Date"] == now_date).dropna()
+        ex_tickers = extickers.where(dividend["Ticker"] in holding_tickers).dropna().ix[:, ["Ticker", "Payable Date", "Distrib Amount"]].value
+
+        print ex_tickers
+
+        # 判断是否是可以获得红利的封基的Payable Date，获取红利
+
+        # 根据策略选择封基
+
+        # 进行此次调仓
+
+        now_date += timedelta(days=1)
+    
 
     return
 
@@ -432,11 +479,11 @@ def main():
     sponsor = load_sponsor("./conf/ticker_sponsor.csv")
 
     # 处理分红数据
-    #dividend = process_dividend(dividend, config_json)
+    dividend = process_dividend(dividend, config_json)
     logging.debug("finish process_dividend.")
 
     # 处理交易详情数据
-    #trade_data = process_trade_data(trade_data, sponsor, config_json)
+    trade_data = process_trade_data(trade_data, sponsor, config_json)
     logging.debug("finish process_trade_data.")
 
     # 回测
