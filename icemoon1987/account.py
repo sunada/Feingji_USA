@@ -94,6 +94,7 @@ class Account(object):
 
         self.stock_map[stock_id].buy(price, share)
         self.cash -= price * share
+        logging.info("buy ticker %s %d share at %f" % (stock_id, share, price))
 
         return share
 
@@ -122,6 +123,8 @@ class Account(object):
 
         if self.stock_map[stock_id].share == 0:
             del self.stock_map[stock_id]
+
+        logging.info("sell ticker %s %d share at %f" % (stock_id, share, price))
         
         return share
 

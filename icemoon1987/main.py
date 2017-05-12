@@ -43,9 +43,13 @@ def init(conf_file):
 
     log_dir = config_json["log_dir"]
     result_dir = config_json["result_dir"]
+    mid_data_dir = config_json["mid_data_dir"]
 
     if not os.path.exists(log_dir):
         os.mkdir(log_dir)
+
+    if not os.path.exists(mid_data_dir):
+        os.mkdir(mid_data_dir)
 
     if os.path.exists(result_dir):
         shutil.rmtree(result_dir)
@@ -72,18 +76,6 @@ def load_trade_data(data_dir):
         result = pd.concat([result, tmp], ignore_index=True)
 
     return result
-
-
-def load_dividends(dividen_file):
-    """ 加载红利数据，返回DataFrame """
-
-    return pd.read_csv(dividen_file, parse_dates=["Declared Date", "Payable Date", "Ex Date"])
-
-
-def load_sponsor(sponsor_file):
-    """ 加载基金公司数据，返回DataFrame """
-
-    return pd.read_csv(sponsor_file)
 
 
 def filter_by_sponsor(trade_data, sponsor, select_sponsors):
@@ -199,9 +191,9 @@ def calcu_period_dividend_earning(dividend, earning_days):
 
         dividend_earning = pd.concat([dividend_earning, tmp])
 
-    dividend_earning.rename(columns={"Distrib Amount": "amount_sum"}, inplace=True)
+    dividend_earning.rename(columns={"Distrib Amount": "dividend_earning"}, inplace=True)
 
-    dividend = pd.merge(dividend, dividend_earning.ix[:, ["amount_sum"]], how="left", left_index=True, right_index=True)
+    dividend = pd.merge(dividend, dividend_earning.ix[:, ["dividend_earning"]], how="left", left_index=True, right_index=True)
 
     return dividend
 
@@ -338,14 +330,11 @@ def process_dividend(dividend, config_json):
     return dividend
 
 
-def process_trade_data(trade_data, sponsor, config_json):
+def process_trade_data(trade_data, config_json):
     """ 处理交易详情数据 """
 
     # 按照基金名、日期排序
     trade_data = trade_data.sort_values(by=["Ticker", "Date"])
-
-    # 按照基金公司过滤
-    trade_data = filter_by_sponsor(trade_data, sponsor, config_json["select_sponsors"])
 
     # 计算溢价率、溢价率z-score
     trade_data = calcu_premium_rate(trade_data, config_json["z_score_days"])
@@ -414,17 +403,43 @@ def get_test_dates(trade_data, dividend, config_json):
     return backtest_start_date, backtest_end_date
 
 
+def select_ticker(merged_data, now_date, sponsor, config_json):
 
-def backtest(trade_data, dividend, config_json):
-    """ 实现回测逻辑的函数 """
+    # 过滤出当天数据
+    tmp = merged_data.where(merged_data["Date"] == now_date).dropna()
 
-    # 检查回测日期是否满足条件
-    start_date, end_date = get_test_dates(trade_data, dividend, config_json)
+    # 把当天的所有基金的价格提取出来，用于之后调整仓位的卖出操作
+    price_map = {}
 
-    if start_date == None:
-        return None
+    for item in tmp.ix[:, ["Ticker", "Share Price"]].values:
+        price_map[item[0]] = item[1]
 
-    print trade_data, dividend
+    # 最近一段时间，总回报最高的10支基金
+    tickers = tmp.sort_values(by=["overall_earning"], ascending=False)["Ticker"].values[0:10]
+    tmp = tmp.where(tmp["Ticker"].isin(tickers)).dropna()
+
+    # 按照基金公司过滤
+    tickers = sponsor.where(sponsor["sponsor"].isin(config_json["select_sponsors"])).dropna()["ticker"].values
+    tmp = tmp.where(tmp["Ticker"].isin(tickers)).dropna()
+
+    # 最近一段时间，每次分红额都不降
+    tmp = tmp.where(tmp["is_period_rise"] == 1).dropna()
+
+    # 按照综合得分排序
+    tmp.sort_values(by=["overall_score"], ascending=False)
+
+    tmp = tmp.ix[:, ["Ticker", "Share Price"]]
+
+    result_map = {}
+
+    for item in tmp.values:
+        result_map[item[0]] = item[1]
+
+    return result_map, price_map
+
+
+def merge_data(trade_data, dividend):
+    """ 合并数据 """
 
     # 去除特殊分红
     dividend = dividend.where(dividend["is_special"] == 0).dropna()
@@ -439,12 +454,75 @@ def backtest(trade_data, dividend, config_json):
         data.fillna(method="pad", inplace=True)
         merged_data = pd.concat([merged_data, data])
 
+    # 计算总得分：z * 溢价率 * 分红率(NTM)
+    merged_data["overall_score"] = merged_data["premium_rate_z_score"] * merged_data["premium_rate"] * merged_data["NTM"]
+
+    # 计算总收益：差价收益 + 分红收益
+    merged_data["overall_earning"] = merged_data["price_earning"] + merged_data["dividend_earning"]
+
+    return merged_data
+
+
+def adjust_account(selected_tickers, price_map, account, max_hold_ticker, trade_file, now_date):
+    """ 调仓函数，根据选择出来的封基，调整仓位，不允许空仓 """
+
+    holding_set = set(account.get_stock_list())
+    select_set = set(selected_tickers.keys()[0:max_hold_ticker])
+
+    if len(select_set) == 0:
+        return
+
+    buy_set = select_set.difference(holding_set)
+    sell_set = holding_set.difference(select_set)
+
+    # 先处理卖出
+    for ticker in sell_set:
+        price = price_map[ticker]
+        share = account.stock_map[ticker].share
+
+        actual_share = account.sell(ticker, price, share)
+        trade_file.write("%s,%s,%s,%f,%d,%f\n" % (now_date, "sell", ticker, price, actual_share, account.get_value()))
+
+    # 再处理买入
+    if len(buy_set) == 0:
+        return
+
+    mean_buy_value = account.cash / len(buy_set)
+
+    for ticker in buy_set:
+        price = price_map[ticker]
+        share = int(mean_buy_value / price)
+        
+        actual_share = account.buy(ticker, price, share)
+        trade_file.write("%s,%s,%s,%f,%d,%f\n" % (now_date, "buy", ticker, price, actual_share, account.get_value()))
+
+    return
+
+
+def backtest(merged_data, dividend, sponsor, start_date, end_date, config_json):
+    """ 实现回测逻辑的函数 """
+
     # 回测开始
     now_date = start_date
     account = Account(cash=config_json["start_cash"], min_trade_share=0, trade_unit=1)
 
-    # Ticker: {Pay Date: hold share}
+    # pay_date: {ticker: [distrib_amount, holding_share]}
     dividend_ticker_map = {}
+
+    # For test only
+    #account.buy("AFT", 10, 100)
+    #account.buy("BGB", 10, 200)
+    #account.buy("BGX", 10, 300)
+    #account.buy("BSL", 10, 400)
+
+    date_list = []
+    value_list = []
+
+    value_file = open(config_json["result_dir"] + "/value_result.csv", "w")
+    value_file.write("Date,Value\n")
+
+    trade_file = open(config_json["result_dir"] + "/trade_plan.csv", "w")
+    trade_file.write("Date,Action,Ticker,Price,Share,Account Value")
 
     while now_date < end_date:
 
@@ -452,46 +530,106 @@ def backtest(trade_data, dividend, config_json):
         holding_tickers = account.get_stock_list()
 
         ex_tickers = dividend.where(dividend["Ex Date"] == now_date).dropna()
-        ex_tickers = extickers.where(dividend["Ticker"] in holding_tickers).dropna().ix[:, ["Ticker", "Payable Date", "Distrib Amount"]].value
+        ex_tickers = ex_tickers.where(dividend["Ticker"].isin(holding_tickers)).dropna().ix[:, ["Ticker", "Payable Date", "Distrib Amount"]].values
 
-        print ex_tickers
+        for item in ex_tickers:
+            ticker = item[0]
+            pay_date = item[1]
+            distrib_amount = item[2]
+            holding_share = account.stock_map[ticker].share
+
+            dividend_ticker_map.setdefault(pay_date, {})
+            dividend_ticker_map[pay_date].setdefault(ticker, [])
+
+            dividend_ticker_map[pay_date][ticker] = [distrib_amount, holding_share]
+
+            logging.debug("holding dividend ticker: ticker=%s, ex_date=%s, pay_date=%s, distrib_amount=%f, holding_share=%d" % (ticker, now_date, pay_date, distrib_amount, holding_share))
+
 
         # 判断是否是可以获得红利的封基的Payable Date，获取红利
+        if now_date in dividend_ticker_map:
+            for ticker in dividend_ticker_map[now_date]:
+
+                distrib_amount = dividend_ticker_map[now_date][ticker][0]
+                holding_share = dividend_ticker_map[now_date][ticker][1]
+
+                account.cash += distrib_amount * holding_share
+
+                logging.debug("get ticker dividend: ticker=%s, now_date=%s, pay_date=%s, distrib_amount=%f, holding_share=%d, earning=%f" % (ticker, now_date, pay_date, distrib_amount, holding_share, distrib_amount * holding_share))
+
 
         # 根据策略选择封基
+        selected_tickers, price_map = select_ticker(merged_data, now_date, sponsor, config_json)
 
         # 进行此次调仓
+        adjust_account(selected_tickers, price_map, account, config_json["max_hold_ticker"], trade_file, now_date)
+
+        # 记录每天的账户总值
+        date_list.append(now_date)
+        value_list.append(account.get_value())
+
+        value_file.write("%s,%f\n" % (now_date, account.get_value()))
+
+        print "%s   %f" % (now_date, account.get_value())
 
         now_date += timedelta(days=1)
-    
 
-    return
+    value_file.close()
+    trade_file.close()
+
+    return date_list, value_list
 
 
-
-def main():
-
-    config_json = init("./conf/config.json")
+def process_data(config_json):
 
     # 加载数据
     trade_data = load_trade_data(config_json["data_dir"])
-    dividend = load_dividends("./conf/dividends.csv")
-    sponsor = load_sponsor("./conf/ticker_sponsor.csv")
+    dividend = pd.read_csv("./conf/dividends.csv", parse_dates=["Payable Date", "Ex Date"])
 
     # 处理分红数据
     dividend = process_dividend(dividend, config_json)
     logging.debug("finish process_dividend.")
 
     # 处理交易详情数据
-    trade_data = process_trade_data(trade_data, sponsor, config_json)
+    trade_data = process_trade_data(trade_data, config_json)
     logging.debug("finish process_trade_data.")
+
+    # 合并交易数据和分红数据，并填充
+    merged_data = merge_data(trade_data, dividend)
+    logging.debug("finish merge_data.")
+
+    # 将处理后的数据存储为中间结果，方便进行反复试验
+    trade_data.to_csv(config_json["mid_data_dir"] + "/trade_data.csv")
+    dividend.to_csv(config_json["mid_data_dir"] + "/dividend.csv")
+    merged_data.to_csv(config_json["mid_data_dir"] + "/merged_data.csv")
+
+    return
+
+
+def main():
+
+    config_json = init("./conf/config.json")
+
+    # 处理数据，在参数不变的情况下，只需要执行一次，跑出中间数据即可进行多次试验
+    #process_data(config_json)
+
+    # 加载数据
+    sponsor = pd.read_csv("./conf/ticker_sponsor.csv")
+    dividend = pd.read_csv(config_json["mid_data_dir"] + "/dividend.csv", parse_dates=["Payable Date", "Ex Date"])
+    trade_data = pd.read_csv(config_json["mid_data_dir"] + "/trade_data.csv", parse_dates=["Date"])
+    merged_data = pd.read_csv(config_json["mid_data_dir"] + "/merged_data.csv", parse_dates=["Date", "Payable Date", "Ex Date"])
+
+    # 检查回测日期是否满足条件
+    start_date, end_date = get_test_dates(trade_data, dividend, config_json)
+    if start_date == None:
+        return False
 
     # 回测
     logging.info("backtest start at: %s" % (datetime.now()))
-    backtest(trade_data, dividend, config_json)
+    backtest(merged_data, dividend, sponsor, start_date, end_date, config_json)
     logging.info("backtest end at: %s" % (datetime.now()))
 
-    return
+    return True
 
 
 if __name__ == "__main__":
