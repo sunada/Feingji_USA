@@ -57,6 +57,10 @@ class Stock(object):
     
     def get_mean_price(self):
         return self.value / self.share
+
+
+    def update_value(self, price):
+        self.value = price * self.share
         
 
 
@@ -139,6 +143,14 @@ class Account(object):
         value += self.cash
 
         return value
+
+
+    def update_value(self, price_map):
+
+        for stock_id in self.stock_map:
+            self.stock_map[stock_id].update_value(price_map[stock_id])
+
+        return self.get_value()
 
     
     def get_stock_list(self):

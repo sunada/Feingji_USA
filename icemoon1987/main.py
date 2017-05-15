@@ -403,7 +403,7 @@ def get_test_dates(trade_data, dividend, config_json):
     return backtest_start_date, backtest_end_date
 
 
-def select_ticker(merged_data, now_date, sponsor, config_json):
+def get_price_map_at_day(merged_data, now_date):
 
     # 过滤出当天数据
     tmp = merged_data.where(merged_data["Date"] == now_date).dropna()
@@ -413,6 +413,13 @@ def select_ticker(merged_data, now_date, sponsor, config_json):
 
     for item in tmp.ix[:, ["Ticker", "Share Price"]].values:
         price_map[item[0]] = item[1]
+
+    return price_map
+
+def select_ticker(merged_data, now_date, sponsor, config_json):
+
+    # 过滤出当天数据
+    tmp = merged_data.where(merged_data["Date"] == now_date).dropna()
 
     # 最近一段时间，总回报最高的10支基金
     tickers = tmp.sort_values(by=["overall_earning"], ascending=False)["Ticker"].values[0:10]
@@ -435,7 +442,7 @@ def select_ticker(merged_data, now_date, sponsor, config_json):
     for item in tmp.values:
         result_map[item[0]] = item[1]
 
-    return result_map, price_map
+    return result_map
 
 
 def merge_data(trade_data, dividend):
@@ -557,12 +564,20 @@ def backtest(merged_data, dividend, sponsor, start_date, end_date, config_json):
 
                 logging.debug("get ticker dividend: ticker=%s, now_date=%s, pay_date=%s, distrib_amount=%f, holding_share=%d, earning=%f" % (ticker, now_date, pay_date, distrib_amount, holding_share, distrib_amount * holding_share))
 
+        # 取出出当日价格，为空则表示当日不是交易日
+        price_map = get_price_map_at_day(merged_data, now_date)
 
-        # 根据策略选择封基
-        selected_tickers, price_map = select_ticker(merged_data, now_date, sponsor, config_json)
+        # 如果当日为交易日
+        if len(price_map.keys()) != 0:
 
-        # 进行此次调仓
-        adjust_account(selected_tickers, price_map, account, config_json["max_hold_ticker"], trade_file, now_date)
+            # 根据策略选择封基
+            selected_tickers = select_ticker(merged_data, now_date, sponsor, config_json)
+
+            # 进行此次调仓
+            adjust_account(selected_tickers, price_map, account, config_json["max_hold_ticker"], trade_file, now_date)
+
+            # 用当日的价格，更新所有持仓基金的价值
+            account.update_value(price_map)
 
         # 记录每天的账户总值
         date_list.append(now_date)
@@ -611,7 +626,7 @@ def main():
     config_json = init("./conf/config.json")
 
     # 处理数据，在参数不变的情况下，只需要执行一次，跑出中间数据即可进行多次试验
-    #process_data(config_json)
+    process_data(config_json)
 
     # 加载数据
     sponsor = pd.read_csv("./conf/ticker_sponsor.csv")
