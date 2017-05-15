@@ -529,7 +529,7 @@ def backtest(merged_data, dividend, sponsor, start_date, end_date, config_json):
     value_file.write("Date,Value\n")
 
     trade_file = open(config_json["result_dir"] + "/trade_plan.csv", "w")
-    trade_file.write("Date,Action,Ticker,Price,Share,Account Value")
+    trade_file.write("Date,Action,Ticker,Price,Share,Account Value\n")
 
     while now_date < end_date:
 
