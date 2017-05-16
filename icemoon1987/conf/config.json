@@ -1,0 +1,24 @@
+{
+	"log_dir": "./log",
+	"data_dir": "./data",
+	"mid_data_dir": "./mid_data",
+	"result_dir": "./result",
+	"debug_mode": true,
+
+	"select_sponsors": [
+		"Pacific Investment Management Company LLC",
+		"Nuveen Fund Advisors",
+		"Eaton Vance"
+	],
+
+	"dividend_rise_days": 1095,
+	"earning_days": 1095,
+	"z_score_days": 365,
+
+	"backtest_start_date": "",
+	"backtest_end_date": "",
+	"start_cash": 1000000,
+	"max_hold_ticker": 3
+}
+
+
